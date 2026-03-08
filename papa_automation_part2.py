@@ -19,7 +19,6 @@ if uploaded_file:
     date_col = [c for c in df.columns if "Date" in c][0]
 
     df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors="coerce")
-
     df = df.dropna(subset=[date_col])
 
     # -----------------------------
@@ -105,27 +104,47 @@ if uploaded_file:
 
         export_df = edited_df.copy()
 
-        # Add empty calculation columns
         export_df["Salary_per_day"] = ""
         export_df["Entitled_Leave_Days"] = ""
         export_df["Total_Leave_Payable"] = ""
 
-        # Totals row
         totals_row = {
             "Period": "TOTAL",
             "total_days": total_days,
             "planned_hours": "",
             "actual_hours": "",
             "Salary": total_salary,
-            "Salary_per_day": round(salary_per_day,2),
-            "Entitled_Leave_Days": round(entitled_leave,2),
-            "Total_Leave_Payable": round(total_payable,2)
+            "Salary_per_day": round(salary_per_day, 2),
+            "Entitled_Leave_Days": round(entitled_leave, 2),
+            "Total_Leave_Payable": round(total_payable, 2)
         }
 
         export_df = pd.concat([export_df, pd.DataFrame([totals_row])], ignore_index=True)
 
         output = BytesIO()
-        export_df.to_excel(output, index=False, engine="openpyxl")
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            export_df.to_excel(writer, index=False, sheet_name="Payroll")
+
+            worksheet = writer.book["Payroll"]
+
+            # -----------------------------
+            # Auto-fit column width
+            # -----------------------------
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+
+                for cell in column:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+
+                adjusted_width = max_length + 2
+                worksheet.column_dimensions[column_letter].width = adjusted_width
+
         output.seek(0)
 
         st.download_button(
