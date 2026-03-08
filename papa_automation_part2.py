@@ -99,14 +99,30 @@ if uploaded_file:
         st.write(f"Payable Amount: **{custom_pay:.2f}**")
 
         # -----------------------------
-        # Download Excel Option
+        # Prepare Excel Export
         # -----------------------------
         st.subheader("Download Results")
 
         export_df = edited_df.copy()
-        export_df["Salary_per_day"] = salary_per_day
-        export_df["Entitled_Leave_Days"] = entitled_leave
-        export_df["Total_Leave_Payable"] = total_payable
+
+        # Add empty calculation columns
+        export_df["Salary_per_day"] = ""
+        export_df["Entitled_Leave_Days"] = ""
+        export_df["Total_Leave_Payable"] = ""
+
+        # Totals row
+        totals_row = {
+            "Period": "TOTAL",
+            "total_days": total_days,
+            "planned_hours": "",
+            "actual_hours": "",
+            "Salary": total_salary,
+            "Salary_per_day": round(salary_per_day,2),
+            "Entitled_Leave_Days": round(entitled_leave,2),
+            "Total_Leave_Payable": round(total_payable,2)
+        }
+
+        export_df = pd.concat([export_df, pd.DataFrame([totals_row])], ignore_index=True)
 
         output = BytesIO()
         export_df.to_excel(output, index=False, engine="openpyxl")
