@@ -2,94 +2,119 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.title("Leave Salary Calculator")
+st.title("Payroll Leave Entitlement Calculator")
 
-st.write("Enter days worked in each period and salary/day")
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-rows = 5  # number of rows
+if uploaded_file:
 
-data = []
+    # -----------------------------
+    # Load Excel
+    # -----------------------------
+    df = pd.read_excel(uploaded_file, header=[2,3])
 
-col1, col2, col3, col4 = st.columns(4)
+    df.columns = [' '.join(col).strip() for col in df.columns]
+    df.columns = [c.replace("Unnamed:", "").strip() for c in df.columns]
 
-with col1:
-    st.write("Period 1 Days")
+    date_col = [c for c in df.columns if "Date" in c][0]
 
-with col2:
-    st.write("Period 2 Days")
+    df[date_col] = pd.to_datetime(df[date_col], dayfirst=True, errors="coerce")
 
-with col3:
-    st.write("Period 3 Days")
+    df = df.dropna(subset=[date_col])
 
-with col4:
-    st.write("Salary / Day")
+    # -----------------------------
+    # Create Payroll Periods
+    # -----------------------------
+    start_date = df[date_col].min()
 
-for i in range(rows):
-    c1, c2, c3, c4 = st.columns(4)
+    df["period_num"] = ((df[date_col] - start_date).dt.days // 28)
 
-    p1 = c1.number_input(f"Row {i+1} P1", key=f"p1{i}")
-    p2 = c2.number_input(f"Row {i+1} P2", key=f"p2{i}")
-    p3 = c3.number_input(f"Row {i+1} P3", key=f"p3{i}")
-    salary_day = c4.number_input(f"Row {i+1} Salary/Day", key=f"s{i}")
+    df["period_start"] = start_date + pd.to_timedelta(df["period_num"] * 28, unit="D")
+    df["period_end"] = df["period_start"] + pd.Timedelta(days=27)
 
-    total_days = p1 + p2 + p3
-    total_salary = total_days * salary_day
+    df["Period"] = (
+        df["period_start"].dt.strftime("%d/%m/%Y")
+        + " - "
+        + df["period_end"].dt.strftime("%d/%m/%Y")
+    )
 
-    data.append({
-        "Period1": p1,
-        "Period2": p2,
-        "Period3": p3,
-        "Total Days": total_days,
-        "Salary/Day": salary_day,
-        "Total Salary": total_salary
-    })
+    result = df.groupby(["period_start","Period"]).agg(
+        total_days=(date_col,"nunique"),
+        planned_hours=("Planned Duration","sum"),
+        actual_hours=("Actual Duration","sum")
+    ).reset_index()
 
-df = pd.DataFrame(data)
+    result = result.sort_values("period_start")
+    result = result.drop(columns=["period_start"])
 
-st.subheader("Table")
-st.dataframe(df)
+    # -----------------------------
+    # Salary Input per Period
+    # -----------------------------
+    result["Salary"] = 0.0
 
-# totals
-total_days_all = df["Total Days"].sum()
-total_salary_all = df["Total Salary"].sum()
+    st.subheader("Payroll Summary (Enter Salary Per Period)")
 
-st.write("Total Days:", total_days_all)
-st.write("Total Salary:", total_salary_all)
+    edited_df = st.data_editor(result)
 
-# leave calculation
-factor = 28 / 365
-entitled_leave = total_days_all * factor
-salary_per_day = total_salary_all / total_days_all if total_days_all != 0 else 0
-total_payable = entitled_leave * salary_per_day
+    # -----------------------------
+    # Totals
+    # -----------------------------
+    total_days = edited_df["total_days"].sum()
+    total_salary = edited_df["Salary"].sum()
 
-st.subheader("Leave Calculation")
+    st.subheader("Totals")
 
-st.write("Salary / Day:", salary_per_day)
-st.write("Total Entitled Leave:", entitled_leave)
-st.write("Total Payable:", total_payable)
+    st.write(f"Total Days Worked: **{total_days}**")
+    st.write(f"Total Salary: **{total_salary:.2f}**")
 
-# custom days payout
-st.subheader("Custom Days Calculation")
+    if total_days > 0:
 
-input_days = st.number_input("Enter Days")
+        # -----------------------------
+        # Main Calculations
+        # -----------------------------
+        salary_per_day = total_salary / total_days
+        factor = 28 / 365
+        entitled_leave = total_days * factor
+        total_payable = entitled_leave * salary_per_day
 
-custom_payment = salary_per_day * input_days
+        st.subheader("Leave Entitlement Calculation")
 
-st.write("Amount:", custom_payment)
+        st.write(f"Salary per Day: **{salary_per_day:.2f}**")
+        st.write(f"Entitled Leave Days: **{entitled_leave:.2f}**")
+        st.write(f"Total Leave Payable: **{total_payable:.2f}**")
 
-# -------- Excel Export --------
-def convert_to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name="Data")
-    processed_data = output.getvalue()
-    return processed_data
+        # -----------------------------
+        # Custom Days Calculation
+        # -----------------------------
+        st.subheader("Custom Pay Calculation")
 
-excel_file = convert_to_excel(df)
+        input_days = st.number_input(
+            "Enter number of days",
+            min_value=0.0,
+            step=1.0
+        )
 
-st.download_button(
-    label="Download Excel",
-    data=excel_file,
-    file_name="leave_salary_calculation.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+        custom_pay = salary_per_day * input_days
+
+        st.write(f"Payable Amount: **{custom_pay:.2f}**")
+
+        # -----------------------------
+        # Download Excel Option
+        # -----------------------------
+        st.subheader("Download Results")
+
+        export_df = edited_df.copy()
+        export_df["Salary_per_day"] = salary_per_day
+        export_df["Entitled_Leave_Days"] = entitled_leave
+        export_df["Total_Leave_Payable"] = total_payable
+
+        output = BytesIO()
+        export_df.to_excel(output, index=False, engine="openpyxl")
+        output.seek(0)
+
+        st.download_button(
+            label="Download Excel File",
+            data=output,
+            file_name="leave_payroll_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
