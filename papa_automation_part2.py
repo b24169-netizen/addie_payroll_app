@@ -24,7 +24,7 @@ if uploaded_file:
     # -----------------------------
     # Create Payroll Periods
     # -----------------------------
-    start_date = df[date_col].min()
+    start_date = pd.Timestamp("2025-03-24")
 
     df["period_num"] = ((df[date_col] - start_date).dt.days // 28)
 
